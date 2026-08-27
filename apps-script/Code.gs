@@ -17,6 +17,26 @@ const DRIVE_FOLDER_ID = ''; // optional: paste a Drive folder ID, or leave blank
 const SHEET_NAME = 'Challans';
 const CLAUDE_MODEL = 'claude-sonnet-5';
 
+// Standard material names — handwritten material names on the chit (however
+// they're spelled/abbreviated) get mapped to one of these during extraction,
+// so "Bricks tukda", "brick bat", "toda bricks" etc. all land as the same
+// name in the ledger instead of each spelling being its own item. Edit this
+// list freely; it's read fresh on every extraction call, no redeploy of the
+// mapping logic needed — just save the script.
+const MATERIAL_CATALOG = [
+  'Cement (OPC)', 'Cement (PPC)', 'Sand (River)', 'Sand (Crush/M-Sand)',
+  'Aggregate 10mm', 'Aggregate 20mm', 'Aggregate 40mm',
+  'Bricks (Full)', 'Broken Brick Pieces', 'AAC Blocks', 'Fly Ash Bricks',
+  'Steel (TMT Bar)', 'Steel (Binding Wire)', 'Cement Blocks',
+  'RMC (Ready Mix Concrete)', 'Water',
+  'Plywood', 'Timber/Wood', 'Shuttering Material',
+  'Tiles (Floor)', 'Tiles (Wall)', 'Granite', 'Marble',
+  'PVC Pipe', 'GI Pipe', 'CPVC Pipe', 'Electrical Conduit', 'Electrical Wire/Cable',
+  'Paint', 'Primer', 'Putty', 'Waterproofing Chemical',
+  'Glass', 'Aluminium Section', 'MS Angle/Channel', 'Hardware/Fasteners',
+  'Bitumen', 'Gravel/Murum', 'Soil (Filling)',
+];
+
 function doPost(e) {
   let body;
   try {
@@ -60,11 +80,12 @@ function extractFromImage(dataUrl) {
           items: {
             type: 'object',
             properties: {
-              name: { type: 'string' },
+              name: { type: 'string', description: 'The closest matching name from the provided standard materials list. Only fall back to the handwritten text verbatim if nothing in the list is a reasonable match.' },
+              raw_text: { type: 'string', description: 'The material exactly as handwritten on the chit, unedited — kept for audit even when name above is a mapped standard name.' },
               qty: { type: 'string' },
               unit: { type: 'string' },
             },
-            required: ['name'],
+            required: ['name', 'raw_text'],
           },
         },
         field_confidence: {
@@ -85,7 +106,10 @@ function extractFromImage(dataUrl) {
       role: 'user',
       content: [
         { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-        { type: 'text', text: 'Extract this construction delivery challan into the delivery_challan tool. It is a printed pad with Marathi field labels and handwritten English/Marathi answers. Flag anything illegible or ambiguous with low confidence rather than guessing silently.' },
+        { type: 'text', text: 'Extract this construction delivery challan into the delivery_challan tool. It is a printed pad with Marathi field labels and handwritten English/Marathi answers. Flag anything illegible or ambiguous with low confidence rather than guessing silently.\n\n'
+          + 'For each material line, map the handwritten item to the closest match in this standard materials list, and use that standard name as "name" (keep the handwritten text verbatim in "raw_text" regardless):\n'
+          + MATERIAL_CATALOG.join(', ')
+          + '\n\nOnly use the handwritten text as-is for "name" if none of the above is a reasonable match (e.g. a material genuinely not on the list) — do not force a bad match. If the mapping is uncertain, flag that material row low confidence.' },
       ],
     }],
   };

@@ -39,9 +39,24 @@ in by hand.
   JSON: date, DC number, vendor, vehicle number, site, and a materials array.
   Low-confidence fields come back flagged and are highlighted on the confirm screen.
 - **Confirm**: every field is editable — nothing saves until a person taps
-  "Save challan". Materials are free text, not matched against a catalog.
+  "Save challan". Materials are mapped to a standard name during extraction
+  (see below) but still fully editable if the mapping is wrong.
 - **Save**: record + original photo are written to the Sheet/Drive backend, and
   cached locally in IndexedDB so the ledger works even if you go straight back offline.
+
+## Material name standardization
+
+Handwritten material names vary a lot ("Bricks tukda", "brick bat", "toda
+bricks" — all the same item). Extraction maps each line to the closest entry
+in `MATERIAL_CATALOG` (top of `Code.gs`) and uses that as the material name;
+the original handwritten text is kept alongside it as `raw_text` in the saved
+record (visible in the Sheet's Materials JSON column) so nothing written on
+the chit is lost even though the UI only shows the mapped name.
+
+To edit the list: open `Code.gs` in the Apps Script editor, edit the
+`MATERIAL_CATALOG` array, save, then **Deploy → Manage deployments → Edit →
+New version** (saving alone does not update the live `/exec` endpoint).
+No client changes needed.
 
 ## Next phases
 
