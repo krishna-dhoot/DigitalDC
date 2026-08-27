@@ -8,7 +8,10 @@ for the full design.
 **Phase 1** (this build): capture → confirm → save. No offline queue yet — a
 network connection is needed at extraction time, but a photo is never lost:
 if extraction fails, the confirm screen still opens with blank fields to fill
-in by hand.
+in by hand, with a **Retry** button to re-run extraction against the same
+photo (no retake needed). The backend also retries transient failures (rate
+limits, momentary overload) automatically before giving up, and the client
+gives up after 40s rather than hanging indefinitely.
 
 ## Setup
 

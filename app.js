@@ -126,6 +126,8 @@ function resizeToDataUrl(file, maxSide, quality) {
   });
 }
 
+const EXTRACT_TIMEOUT_MS = 40000;
+
 // ── Extraction (server-side call, keeps the API key off the client) ──
 async function extractFields(dataUrl) {
   const main = document.getElementById('view-capture');
@@ -136,19 +138,30 @@ async function extractFields(dataUrl) {
     </div>
   `;
   try {
-    const [res] = await Promise.all([
-      fetch(APP.scriptUrl, { method: 'POST', body: JSON.stringify({ action: 'extract', image: dataUrl }) }),
-      fetchLists(), // refresh so anything added since the last capture is selectable
-    ]);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), EXTRACT_TIMEOUT_MS);
+    let res;
+    try {
+      [res] = await Promise.all([
+        fetch(APP.scriptUrl, { method: 'POST', body: JSON.stringify({ action: 'extract', image: dataUrl }), signal: controller.signal }),
+        fetchLists(), // refresh so anything added since the last capture is selectable
+      ]);
+    } finally {
+      clearTimeout(timeout);
+    }
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     APP.draft.fields = normalizeFields(data);
     APP.draft.confidence = data.field_confidence || {};
+    APP.draft.extractError = null;
   } catch (err) {
-    // Extraction failed (offline, or the model choked) — don't lose the photo.
-    // Drop into the confirm screen with everything blank so it can be filled by hand.
+    // Extraction failed (offline, timed out, or the model/server choked) --
+    // don't lose the photo. Drop into the confirm screen with blank fields
+    // to fill by hand, but keep the photo so "Retry" doesn't need a retake.
     APP.draft.fields = normalizeFields({});
-    APP.draft.extractError = err.message || 'Could not read the chit automatically — fill it in below.';
+    APP.draft.extractError = err.name === 'AbortError'
+      ? 'Timed out reading the chit — the connection may be slow. Fill it in below, or retry.'
+      : (err.message || 'Could not read the chit automatically — fill it in below.');
   }
   renderConfirm();
 }
@@ -176,7 +189,10 @@ function renderConfirm() {
   main.innerHTML = `
     <div class="card">
       <img id="preview" src="${APP.draft.photoDataUrl}">
-      ${APP.draft.extractError ? `<div class="status-row" style="color:var(--warn);">⚠ ${APP.draft.extractError}</div>` : ''}
+      ${APP.draft.extractError ? `
+        <div class="status-row" style="color:var(--warn);">⚠ ${escapeHtml(APP.draft.extractError)}</div>
+        <button type="button" class="btn btn-secondary" style="margin-bottom:14px;" onclick="retryExtraction()">↻ Retry reading this photo</button>
+      ` : ''}
 
       <label>Date</label>
       <input type="date" id="f-date" value="${f.date}">
@@ -303,6 +319,13 @@ function getPickOrAddValue(id) {
 }
 
 function discardDraft() { APP.draft = null; renderCapture(); }
+
+// Re-runs extraction against the photo already in hand -- no retake needed.
+// This is the fix for a flaky connection: retrying costs one more request,
+// not another trip back to the delivery to re-photograph the chit.
+function retryExtraction() {
+  extractFields(APP.draft.photoDataUrl);
+}
 
 async function saveDraft() {
   const vendor = getPickOrAddValue('f-vendor');

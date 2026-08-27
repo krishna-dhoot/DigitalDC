@@ -131,21 +131,45 @@ function extractFromImage(dataUrl) {
     }],
   };
 
-  const res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
-    method: 'post',
-    contentType: 'application/json',
-    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-    payload: JSON.stringify(payload),
-    muteHttpExceptions: true,
-  });
-
-  const status = res.getResponseCode();
-  const data = JSON.parse(res.getContentText());
+  const { status, data } = fetchWithRetry(payload, apiKey);
   if (status !== 200) throw new Error((data.error && data.error.message) || 'Claude API error ' + status);
 
   const toolUse = (data.content || []).find(c => c.type === 'tool_use');
   if (!toolUse) throw new Error('Model did not return structured data');
   return toolUse.input;
+}
+
+// Retries transient failures (rate limit, momentary overload, a dropped
+// connection) automatically -- these show up as "sometimes it just fails"
+// from the phone even though the request itself was fine, so retrying
+// server-side (cheap: it's already past the slow phone-network upload by
+// this point) fixes most of them without the person needing to do anything.
+function fetchWithRetry(payload, apiKey) {
+  const maxAttempts = 3;
+  let lastStatus, lastData;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let res;
+    try {
+      res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+        method: 'post',
+        contentType: 'application/json',
+        headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true,
+      });
+    } catch (err) {
+      // Network-level failure (not an HTTP error response) -- worth a retry too.
+      if (attempt === maxAttempts) throw err;
+      Utilities.sleep(1000 * attempt);
+      continue;
+    }
+    lastStatus = res.getResponseCode();
+    lastData = JSON.parse(res.getContentText());
+    const transient = lastStatus === 429 || lastStatus === 529 || (lastStatus >= 500 && lastStatus < 600);
+    if (!transient || attempt === maxAttempts) return { status: lastStatus, data: lastData };
+    Utilities.sleep(1000 * attempt); // 1s, then 2s
+  }
+  return { status: lastStatus, data: lastData };
 }
 
 // ── Save: append row to the sheet, store the photo in Drive, grow the lists ──
