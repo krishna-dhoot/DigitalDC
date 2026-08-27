@@ -3,6 +3,11 @@
 // Offline queueing is Phase 2; this build requires a connection at capture time
 // but never loses a photo mid-flow (it's held in memory/IndexedDB until saved).
 
+// Surfaces JS errors as an on-screen alert — there's no devtools console on a
+// site phone, so this is how we see what actually broke instead of guessing.
+window.addEventListener('error', (e) => alert('DigitalDC error: ' + e.message));
+window.addEventListener('unhandledrejection', (e) => alert('DigitalDC error: ' + (e.reason && e.reason.message ? e.reason.message : e.reason)));
+
 const APP = {
   // Set this after deploying the Apps Script web app (Deploy > New deployment > Web app).
   scriptUrl: 'https://script.google.com/macros/s/AKfycbwLm0nMxq4JCxsh0JjqloZc_lPi15j-F8-PcvGi9pocJ_--mDAgJJxjqEKm23DPFPUY/exec',
