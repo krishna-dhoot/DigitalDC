@@ -1,0 +1,10 @@
+{
+  "name": "DigitalDC",
+  "short_name": "DigitalDC",
+  "description": "Photograph a delivery challan, get structured data back.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#eef2f6",
+  "theme_color": "#1b2a44",
+  "icons": []
+}
