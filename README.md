@@ -66,6 +66,11 @@ staff choose:
   confirmed on save, never from an unreviewed guess. The first few DCs will
   be all "Add new"; the lists fill in fast after that as the same vendors and
   materials repeat.
+- `Materials` has a second column, **Default Unit** — the unit confirmed the
+  first time a material was saved (or backfilled the first time it's saved
+  *with* a unit, if the first save left it blank). Picking that material
+  again auto-fills its unit, without overwriting anything already typed in
+  that row.
 - You can also edit the `Vendors`/`Materials` tabs by hand any time (fix a
   typo, merge a duplicate) — changes apply on the very next capture.
 

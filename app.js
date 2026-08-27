@@ -211,14 +211,31 @@ function renderConfirm() {
 function renderMatRows() {
   const wrap = document.getElementById('mat-rows');
   const conf = (APP.draft.confidence.materials || []);
+  const materialNames = APP.materialList.map(m => m.name);
   wrap.innerHTML = APP.draft.fields.materials.map((m, i) => `
     <div class="mat-row">
-      <div>${pickOrAddHtml(`mat-${i}-name`, APP.materialList, m.match, m.name, conf[i] === 'low' ? 'conf-low' : '')}</div>
+      <div>${pickOrAddHtml(`mat-${i}-name`, materialNames, m.match, m.name, conf[i] === 'low' ? 'conf-low' : '', `onMaterialPicked(${i})`)}</div>
       <input type="text" id="mat-${i}-qty" placeholder="Qty" value="${escapeHtml(m.qty)}">
       <input type="text" id="mat-${i}-unit" placeholder="Unit" value="${escapeHtml(m.unit || '')}">
       <button type="button" class="mat-remove" onclick="removeMatRow(${i})">✕</button>
     </div>
   `).join('');
+  // Autofill also applies when a row starts out pre-matched (extraction was
+  // confident) -- the select's onchange doesn't fire just from being
+  // pre-selected in markup, so trigger it explicitly here.
+  APP.draft.fields.materials.forEach((m, i) => onMaterialPicked(i));
+}
+
+// Picking a known material pre-fills its remembered unit (from the
+// Materials sheet), so unit doesn't need retyping every time the same
+// material comes up -- but only into an empty box, never overwriting
+// something already typed for this row.
+function onMaterialPicked(i) {
+  const unitInput = document.getElementById(`mat-${i}-unit`);
+  if (!unitInput || unitInput.value.trim()) return;
+  const name = getPickOrAddValue(`mat-${i}-name`);
+  const entry = APP.materialList.find(m => m.name === name);
+  if (entry && entry.unit) unitInput.value = entry.unit;
 }
 function addMatRow() { syncMatRowsFromDom(); APP.draft.fields.materials.push({ name: '', match: '', qty: '', unit: '' }); renderMatRows(); }
 function removeMatRow(i) {
@@ -251,12 +268,12 @@ function syncMatRowsFromDom() {
 // "Add new" box. Without a confident match, nothing is preselected and
 // nothing is pre-typed: picking the right list entry, or explicitly choosing
 // "Add new" and typing it, is a deliberate action every time.
-function pickOrAddHtml(id, list, matchedValue, rawText, extraClass) {
+function pickOrAddHtml(id, list, matchedValue, rawText, extraClass, onChangeExtra) {
   const matched = list.find(v => v === matchedValue) || null;
   const hint = (rawText || '').trim();
   const options = list.map(v => `<option value="${escapeHtml(v)}" ${v === matched ? 'selected' : ''}>${escapeHtml(v)}</option>`).join('');
   const select = list.length ? `
-    <select id="${id}-select" class="${extraClass || ''}" onchange="onPickChange('${id}')">
+    <select id="${id}-select" class="${extraClass || ''}" onchange="onPickChange('${id}');${onChangeExtra || ''}">
       <option value="" ${matched ? '' : 'selected'} disabled>${matched ? '' : '— Select —'}</option>
       ${options}
       <option value="__new__">＋ Add new…</option>

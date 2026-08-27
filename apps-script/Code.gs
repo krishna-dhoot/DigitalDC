@@ -56,7 +56,7 @@ function doGet(e) {
 }
 
 function getLists() {
-  return { vendors: readNameList(VENDORS_SHEET_NAME), materials: readNameList(MATERIALS_SHEET_NAME) };
+  return { vendors: readNameList(VENDORS_SHEET_NAME), materials: readMaterialList() };
 }
 
 // ── Extraction: send the photo to Claude, get structured fields back ──
@@ -113,7 +113,7 @@ function extractFromImage(dataUrl) {
 
   const listsPrompt = (lists.vendors.length || lists.materials.length)
     ? '\n\nExisting vendor list: ' + (lists.vendors.length ? lists.vendors.join(', ') : '(empty)')
-      + '\nExisting materials list: ' + (lists.materials.length ? lists.materials.join(', ') : '(empty)')
+      + '\nExisting materials list: ' + (lists.materials.length ? lists.materials.map(m => m.name).join(', ') : '(empty)')
       + '\nFor vendor_match and each material\'s match: only fill these in if you are genuinely confident the handwritten entry is the same real-world vendor/material as one already in these lists -- a close spelling of the same name counts, a different-but-similar item does not. If in doubt, omit the match field entirely rather than picking the closest one.'
     : '';
 
@@ -172,7 +172,7 @@ function saveRecord(rec) {
   // Only the names a person actually confirmed on save go into the lists --
   // this is how the (initially empty) Vendors/Materials tabs grow over time.
   ensureInList(VENDORS_SHEET_NAME, rec.vendor);
-  (rec.materials || []).forEach(m => ensureInList(MATERIALS_SHEET_NAME, m.name));
+  (rec.materials || []).forEach(m => ensureMaterialInList(m.name, m.unit));
 
   return { ok: true, id: rec.id, photo_url: photoUrl };
 }
@@ -206,19 +206,20 @@ function getOrCreateSheet() {
 }
 
 // ── Vendors / Materials lists — start empty, grow only from confirmed saves ──
-function getOrCreateListSheet(name) {
+function getOrCreateListSheet(name, headers) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(name);
   if (!sheet) {
     sheet = ss.insertSheet(name);
-    sheet.appendRow(['Name']);
+    sheet.appendRow(headers);
     sheet.setFrozenRows(1);
   }
   return sheet;
 }
 
+// Vendors: a single "Name" column.
 function readNameList(sheetName) {
-  const sheet = getOrCreateListSheet(sheetName);
+  const sheet = getOrCreateListSheet(sheetName, ['Name']);
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
   return sheet.getRange(2, 1, lastRow - 1, 1).getValues()
@@ -229,10 +230,39 @@ function readNameList(sheetName) {
 function ensureInList(sheetName, value) {
   const name = String(value || '').trim();
   if (!name) return;
-  const sheet = getOrCreateListSheet(sheetName);
+  const sheet = getOrCreateListSheet(sheetName, ['Name']);
   const existing = readNameList(sheetName);
   const alreadyThere = existing.some(n => n.toLowerCase() === name.toLowerCase());
   if (!alreadyThere) sheet.appendRow([name]);
+}
+
+// Materials: "Name" + "Default Unit" -- the unit remembered from the first
+// (or first-ever-set) time this material was confirmed, so picking it again
+// can pre-fill the unit instead of retyping it every chit.
+function readMaterialList() {
+  const sheet = getOrCreateListSheet(MATERIALS_SHEET_NAME, ['Name', 'Default Unit']);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  return sheet.getRange(2, 1, lastRow - 1, 2).getValues()
+    .map(row => ({ name: String(row[0] || '').trim(), unit: String(row[1] || '').trim() }))
+    .filter(m => m.name);
+}
+
+function ensureMaterialInList(name, unit) {
+  const trimmedName = String(name || '').trim();
+  if (!trimmedName) return;
+  const trimmedUnit = String(unit || '').trim();
+  const sheet = getOrCreateListSheet(MATERIALS_SHEET_NAME, ['Name', 'Default Unit']);
+  const lastRow = sheet.getLastRow();
+  const rows = lastRow >= 2 ? sheet.getRange(2, 1, lastRow - 1, 2).getValues() : [];
+  const idx = rows.findIndex(r => String(r[0] || '').trim().toLowerCase() === trimmedName.toLowerCase());
+  if (idx === -1) {
+    sheet.appendRow([trimmedName, trimmedUnit]);
+  } else if (trimmedUnit && !String(rows[idx][1] || '').trim()) {
+    // Backfill a unit that wasn't captured the first time this material was
+    // confirmed -- never overwrite one that's already set, that's a manual edit.
+    sheet.getRange(2 + idx, 2).setValue(trimmedUnit);
+  }
 }
 
 function jsonOut(obj) {
