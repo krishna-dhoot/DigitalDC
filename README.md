@@ -53,11 +53,14 @@ staff choose:
 
 - Extraction transcribes the vendor and each material **exactly as
   handwritten** — no standardizing, no guessing.
-- On the confirm screen, vendor and each material are a **dropdown of
-  everything confirmed so far**, plus an **"Add new…"** option. If the
-  handwriting matches an existing entry, it's preselected; otherwise it drops
-  straight into "Add new" pre-filled with the handwritten text for a person
-  to confirm or correct.
+- Separately, extraction is shown the current Vendors/Materials lists and
+  asked to name an *existing* entry only if it's genuinely confident that's
+  the same real-world vendor/material — never a best guess. If it is
+  confident, that entry is preselected on the confirm screen. If not, the
+  field is left unselected (no dropdown pick, nothing pre-typed into "Add
+  new") — the handwritten text is shown underneath only as a reference
+  ("As written: ..."), and a person has to actively pick from the dropdown
+  or choose "Add new" and type it themselves.
 - **Both lists start empty.** The `Vendors` and `Materials` sheet tabs are
   auto-created with no rows — they grow only from names a person actually
   confirmed on save, never from an unreviewed guess. The first few DCs will

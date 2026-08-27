@@ -57,10 +57,13 @@ function getLists() {
 }
 
 // ── Extraction: send the photo to Claude, get structured fields back ──
-// Extraction reads the chit as handwritten — it does NOT try to match against
-// the vendor/material lists. That matching (and the choice to add a genuinely
-// new name) is a confirm-screen decision a person makes, not something the
-// model silently resolves.
+// Extraction transcribes the chit exactly as handwritten (vendor, material
+// name) -- it never invents or standardizes a name. Separately, it's given
+// the current Vendors/Materials lists and asked to name an EXISTING entry
+// only if it's confident that's genuinely the same vendor/material -- never
+// a best guess. The confirm screen preselects that match if given; if not,
+// the field is left for a person to actively pick from the list or add new,
+// never pre-filled with a guess.
 function extractFromImage(dataUrl) {
   const apiKey = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set in Script Properties');
@@ -69,6 +72,7 @@ function extractFromImage(dataUrl) {
   if (!match) throw new Error('Invalid image data');
   const mediaType = match[1];
   const base64 = match[2];
+  const lists = getLists();
 
   const schema = {
     name: 'delivery_challan',
@@ -79,6 +83,7 @@ function extractFromImage(dataUrl) {
         date: { type: 'string', description: 'Date on the chit, as YYYY-MM-DD. Guess the year from context if only DD/MM is legible.' },
         dc_number: { type: 'string', description: 'The printed or stamped serial number of the chit.' },
         vendor: { type: 'string', description: 'Supplier/vendor name exactly as handwritten.' },
+        vendor_match: { type: 'string', description: 'One EXACT entry from the given vendor list, ONLY if you are confident it is the same vendor as handwritten (allowing for spelling/abbreviation, not a different business). Omit entirely if unsure or the list is empty -- never guess.' },
         vehicle_no: { type: 'string', description: 'Vehicle registration number as handwritten.' },
         site_address: { type: 'string', description: 'Site name/address as handwritten.' },
         materials: {
@@ -87,6 +92,7 @@ function extractFromImage(dataUrl) {
             type: 'object',
             properties: {
               name: { type: 'string', description: 'Material name exactly as handwritten.' },
+              match: { type: 'string', description: 'One EXACT entry from the given materials list, ONLY if confident it is the same material as handwritten. Omit entirely if unsure or the list is empty -- never guess.' },
               qty: { type: 'string' },
               unit: { type: 'string' },
             },
@@ -102,6 +108,12 @@ function extractFromImage(dataUrl) {
     },
   };
 
+  const listsPrompt = (lists.vendors.length || lists.materials.length)
+    ? '\n\nExisting vendor list: ' + (lists.vendors.length ? lists.vendors.join(', ') : '(empty)')
+      + '\nExisting materials list: ' + (lists.materials.length ? lists.materials.join(', ') : '(empty)')
+      + '\nFor vendor_match and each material\'s match: only fill these in if you are genuinely confident the handwritten entry is the same real-world vendor/material as one already in these lists -- a close spelling of the same name counts, a different-but-similar item does not. If in doubt, omit the match field entirely rather than picking the closest one.'
+    : '';
+
   const payload = {
     model: CLAUDE_MODEL,
     max_tokens: 1024,
@@ -111,7 +123,7 @@ function extractFromImage(dataUrl) {
       role: 'user',
       content: [
         { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-        { type: 'text', text: 'Extract this construction delivery challan into the delivery_challan tool, exactly as handwritten -- do not standardize or guess a "proper" name for the vendor or any material, just transcribe what is written. It is a printed pad with Marathi field labels and handwritten English/Marathi answers. Flag anything illegible or ambiguous with low confidence rather than guessing silently.' },
+        { type: 'text', text: 'Extract this construction delivery challan into the delivery_challan tool, exactly as handwritten -- do not standardize or guess a "proper" name for the vendor or any material, just transcribe what is written. It is a printed pad with Marathi field labels and handwritten English/Marathi answers. Flag anything illegible or ambiguous with low confidence rather than guessing silently.' + listsPrompt },
       ],
     }],
   };

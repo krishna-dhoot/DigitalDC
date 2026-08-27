@@ -157,10 +157,11 @@ function normalizeFields(data) {
   return {
     date: data.date || new Date().toISOString().slice(0, 10),
     dc_number: data.dc_number || '',
-    vendor: data.vendor || '',
+    vendor: data.vendor || '',        // raw handwritten text -- shown as a hint only, never pre-filled as a value
+    vendor_match: data.vendor_match || '', // exact existing-list entry, only if the model was confident
     vehicle_no: data.vehicle_no || '',
     site_address: data.site_address || APP.site || '',
-    materials: (data.materials && data.materials.length ? data.materials : [{ name: '', qty: '', unit: '' }]),
+    materials: (data.materials && data.materials.length ? data.materials : [{ name: '', match: '', qty: '', unit: '' }]),
   };
 }
 
@@ -181,7 +182,7 @@ function renderConfirm() {
       <input type="date" id="f-date" value="${f.date}">
 
       <label>Vendor / supplier</label>
-      ${pickOrAddHtml('f-vendor', APP.vendorList, f.vendor, cls('vendor'))}
+      ${pickOrAddHtml('f-vendor', APP.vendorList, f.vendor_match, f.vendor, cls('vendor'))}
       ${flag('vendor')}
 
       <label>Vehicle no.</label>
@@ -212,53 +213,63 @@ function renderMatRows() {
   const conf = (APP.draft.confidence.materials || []);
   wrap.innerHTML = APP.draft.fields.materials.map((m, i) => `
     <div class="mat-row">
-      <div>${pickOrAddHtml(`mat-${i}-name`, APP.materialList, m.name, conf[i] === 'low' ? 'conf-low' : '')}</div>
+      <div>${pickOrAddHtml(`mat-${i}-name`, APP.materialList, m.match, m.name, conf[i] === 'low' ? 'conf-low' : '')}</div>
       <input type="text" id="mat-${i}-qty" placeholder="Qty" value="${escapeHtml(m.qty)}">
       <input type="text" id="mat-${i}-unit" placeholder="Unit" value="${escapeHtml(m.unit || '')}">
       <button type="button" class="mat-remove" onclick="removeMatRow(${i})">✕</button>
     </div>
   `).join('');
 }
-function addMatRow() { syncMatRowsFromDom(); APP.draft.fields.materials.push({ name: '', qty: '', unit: '' }); renderMatRows(); }
+function addMatRow() { syncMatRowsFromDom(); APP.draft.fields.materials.push({ name: '', match: '', qty: '', unit: '' }); renderMatRows(); }
 function removeMatRow(i) {
   syncMatRowsFromDom();
   APP.draft.fields.materials.splice(i, 1);
-  if (!APP.draft.fields.materials.length) APP.draft.fields.materials.push({ name: '', qty: '', unit: '' });
+  if (!APP.draft.fields.materials.length) APP.draft.fields.materials.push({ name: '', match: '', qty: '', unit: '' });
   renderMatRows();
 }
 
 // Re-render (add/remove a row, or save) replaces mat-rows' HTML from
 // APP.draft.fields.materials -- so anything typed since the last render has
-// to be pulled back into that array first, or it's lost.
+// to be pulled back into that array first, or it's lost. Once synced, m.name
+// holds whatever the person actually picked/typed; m.match (the model's
+// suggestion, if any) has done its job and isn't used again.
 function syncMatRowsFromDom() {
   APP.draft.fields.materials.forEach((m, i) => {
     if (!document.getElementById(`mat-${i}-qty`)) return; // not rendered (shouldn't happen, but don't crash)
     m.name = getPickOrAddValue(`mat-${i}-name`);
+    m.match = '';
     m.qty = document.getElementById(`mat-${i}-qty`).value;
     m.unit = document.getElementById(`mat-${i}-unit`).value;
   });
 }
 
 // ── "Pick from list, or add new" control shared by vendor + each material row ──
-// Renders a <select> of known names plus "Add new", and a text input that
-// only shows once "Add new" is chosen -- so nothing is ever silently mapped;
-// a name is either an exact pick from what's already confirmed, or a fresh
-// one someone is explicitly typing in right now.
-function pickOrAddHtml(id, list, currentValue, extraClass) {
-  const trimmed = (currentValue || '').trim();
-  const match = list.find(v => v.toLowerCase() === trimmed.toLowerCase());
-  const isNew = !match;
-  const options = list.map(v => `<option value="${escapeHtml(v)}" ${v === match ? 'selected' : ''}>${escapeHtml(v)}</option>`).join('');
+// matchedValue: an exact existing-list entry, only when extraction was
+// confident it's the same vendor/material -- this alone gets preselected.
+// rawText: what was actually handwritten, shown only as a read-only hint so
+// staff can tell what they're matching against -- never used to fill the
+// "Add new" box. Without a confident match, nothing is preselected and
+// nothing is pre-typed: picking the right list entry, or explicitly choosing
+// "Add new" and typing it, is a deliberate action every time.
+function pickOrAddHtml(id, list, matchedValue, rawText, extraClass) {
+  const matched = list.find(v => v === matchedValue) || null;
+  const hint = (rawText || '').trim();
+  const options = list.map(v => `<option value="${escapeHtml(v)}" ${v === matched ? 'selected' : ''}>${escapeHtml(v)}</option>`).join('');
   const select = list.length ? `
     <select id="${id}-select" class="${extraClass || ''}" onchange="onPickChange('${id}')">
+      <option value="" ${matched ? '' : 'selected'} disabled>${matched ? '' : '— Select —'}</option>
       ${options}
-      <option value="__new__" ${isNew ? 'selected' : ''}>＋ Add new…</option>
+      <option value="__new__">＋ Add new…</option>
     </select>` : '';
+  // The "Add new" text box only opens once someone explicitly picks that
+  // option from the dropdown (see onPickChange) -- except when the list is
+  // still empty and there's no dropdown to pick it from.
   return `
     ${select}
     <input type="text" id="${id}-new" placeholder="${list.length ? 'New name' : 'Type name (first time — starts the list)'}"
-      value="${escapeHtml(isNew ? trimmed : '')}" class="${extraClass || ''}"
-      style="${list.length && !isNew ? 'display:none;' : ''}margin-top:${list.length ? '6px' : '0'};">
+      value="" class="${extraClass || ''}"
+      style="${list.length ? 'display:none;' : ''}margin-top:${list.length ? '6px' : '0'};">
+    ${hint ? `<div class="conf-flag" style="color:var(--ink-soft);">As written: "${escapeHtml(hint)}"</div>` : ''}
   `;
 }
 function onPickChange(id) {
@@ -269,7 +280,7 @@ function onPickChange(id) {
 }
 function getPickOrAddValue(id) {
   const sel = document.getElementById(`${id}-select`);
-  if (sel && sel.value !== '__new__') return sel.value;
+  if (sel && sel.value && sel.value !== '__new__') return sel.value;
   const newInput = document.getElementById(`${id}-new`);
   return newInput ? newInput.value.trim() : '';
 }
@@ -280,6 +291,8 @@ async function saveDraft() {
   const vendor = getPickOrAddValue('f-vendor');
   if (!vendor) { alert('Pick or type a vendor name before saving.'); return; }
   syncMatRowsFromDom();
+  const abandoned = APP.draft.fields.materials.some(m => !m.name.trim() && (m.qty.trim() || m.unit.trim()));
+  if (abandoned) { alert('One of the material rows has a quantity but no material picked — select or add its name (or remove the row) before saving.'); return; }
   const materials = APP.draft.fields.materials.filter(m => m.name.trim());
   if (!materials.length) { alert('Add at least one material before saving.'); return; }
 
