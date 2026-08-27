@@ -81,10 +81,14 @@ function renderCapture() {
 async function onPhotoChosen(evt) {
   const file = evt.target.files[0];
   if (!file) return;
-  const dataUrl = await resizeToDataUrl(file, 1600, 0.82);
-  APP.draft = { photoDataUrl: dataUrl, fields: null, confidence: {} };
-  renderCapture();
-  extractFields(dataUrl);
+  try {
+    const dataUrl = await resizeToDataUrl(file, 1600, 0.82);
+    APP.draft = { photoDataUrl: dataUrl, fields: null, confidence: {} };
+    renderCapture();
+    extractFields(dataUrl);
+  } catch (err) {
+    alert('Could not read that photo: ' + (err.message || err) + '\nTry taking the photo again.');
+  }
 }
 
 function resizeToDataUrl(file, maxSide, quality) {
