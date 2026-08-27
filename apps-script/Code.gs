@@ -38,7 +38,10 @@ function doPost(e) {
     if (body.action === 'lists') return jsonOut(getLists());
     return jsonOut({ error: 'Unknown action: ' + body.action });
   } catch (err) {
-    return jsonOut({ error: err.message || String(err) });
+    // Stack's first line names the throwing function -- Apps Script error
+    // messages alone (e.g. "The string did not match the expected pattern")
+    // are too generic to locate without it.
+    return jsonOut({ error: (err.message || String(err)) + ' [at ' + (err.stack ? err.stack.split('\n')[0] : '?') + ']' });
   }
 }
 
@@ -48,7 +51,7 @@ function doGet(e) {
     if (e.parameter.action === 'lists') return jsonOut(getLists());
     return jsonOut({ error: 'Unknown action' });
   } catch (err) {
-    return jsonOut({ error: err.message || String(err) });
+    return jsonOut({ error: (err.message || String(err)) + ' [at ' + (err.stack ? err.stack.split('\n')[0] : '?') + ']' });
   }
 }
 
