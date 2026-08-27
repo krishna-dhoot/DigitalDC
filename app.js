@@ -238,6 +238,7 @@ async function saveDraft() {
 
   APP.draft = null;
   showTab('ledger');
+  toast(rec.sync_status === 'synced' ? 'Challan saved' : 'Saved — will sync when online');
 }
 
 // ── Ledger view ──
@@ -279,6 +280,23 @@ function saveSettings() {
   localStorage.setItem('digitaldc_site', APP.site);
   document.getElementById('site-label').textContent = APP.site ? `Site: ${APP.site}` : 'Tap ⚙️ Site to set your site';
   showTab('capture');
+  toast('Settings saved');
+}
+
+// Brief on-screen confirmation — saves switch tabs right after completing,
+// so without this a successful save and a silent failure looked identical.
+function toast(message) {
+  let el = document.getElementById('toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'toast';
+    el.style.cssText = 'position:fixed;left:50%;bottom:74px;transform:translateX(-50%);background:#1b2a44;color:#fff;padding:10px 18px;border-radius:20px;font-size:13.5px;font-weight:600;z-index:20;opacity:0;transition:opacity .2s;pointer-events:none;';
+    document.body.appendChild(el);
+  }
+  el.textContent = message;
+  el.style.opacity = '1';
+  clearTimeout(el._hideTimer);
+  el._hideTimer = setTimeout(() => { el.style.opacity = '0'; }, 1800);
 }
 
 function escapeHtml(s) { return (s || '').toString().replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
