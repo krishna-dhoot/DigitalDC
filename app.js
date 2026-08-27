@@ -15,7 +15,23 @@ const APP = {
   capturedBy: localStorage.getItem('digitaldc_user') || '',
   records: [],     // local cache of saved records, newest first
   draft: null,     // { photoDataUrl, fields } while mid-capture
+  vendorList: [],   // grows only from names confirmed on save -- starts empty
+  materialList: [], // same
 };
+
+// Pulls the current Vendors/Materials lists from the sheet. Best-effort: if it
+// fails (offline), whatever lists we already have (possibly empty) are kept,
+// and every field just falls back to "Add new" -- never blocks capture.
+async function fetchLists() {
+  try {
+    const res = await fetch(`${APP.scriptUrl}?action=lists`);
+    const data = await res.json();
+    if (!data.error) {
+      APP.vendorList = data.vendors || [];
+      APP.materialList = data.materials || [];
+    }
+  } catch (err) { /* keep existing lists */ }
+}
 
 const DB_NAME = 'digitaldc';
 const STORE = 'records';
@@ -52,6 +68,7 @@ async function dbAllRecords() {
 document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('site-label').textContent = APP.site ? `Site: ${APP.site}` : 'Tap ⚙️ Site to set your site';
   APP.records = await dbAllRecords();
+  fetchLists(); // don't block first paint on this
   renderCapture();
 });
 
@@ -119,10 +136,10 @@ async function extractFields(dataUrl) {
     </div>
   `;
   try {
-    const res = await fetch(APP.scriptUrl, {
-      method: 'POST',
-      body: JSON.stringify({ action: 'extract', image: dataUrl }),
-    });
+    const [res] = await Promise.all([
+      fetch(APP.scriptUrl, { method: 'POST', body: JSON.stringify({ action: 'extract', image: dataUrl }) }),
+      fetchLists(), // refresh so anything added since the last capture is selectable
+    ]);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     APP.draft.fields = normalizeFields(data);
@@ -164,7 +181,7 @@ function renderConfirm() {
       <input type="date" id="f-date" value="${f.date}">
 
       <label>Vendor / supplier</label>
-      <input type="text" id="f-vendor" class="${cls('vendor')}" value="${escapeHtml(f.vendor)}" placeholder="As written on the chit">
+      ${pickOrAddHtml('f-vendor', APP.vendorList, f.vendor, cls('vendor'))}
       ${flag('vendor')}
 
       <label>Vehicle no.</label>
@@ -195,19 +212,77 @@ function renderMatRows() {
   const conf = (APP.draft.confidence.materials || []);
   wrap.innerHTML = APP.draft.fields.materials.map((m, i) => `
     <div class="mat-row">
-      <input type="text" placeholder="Material" value="${escapeHtml(m.name)}" oninput="APP.draft.fields.materials[${i}].name=this.value" class="${conf[i] === 'low' ? 'conf-low' : ''}">
-      <input type="text" placeholder="Qty" value="${escapeHtml(m.qty)}" oninput="APP.draft.fields.materials[${i}].qty=this.value">
-      <input type="text" placeholder="Unit" value="${escapeHtml(m.unit || '')}" oninput="APP.draft.fields.materials[${i}].unit=this.value">
+      <div>${pickOrAddHtml(`mat-${i}-name`, APP.materialList, m.name, conf[i] === 'low' ? 'conf-low' : '')}</div>
+      <input type="text" id="mat-${i}-qty" placeholder="Qty" value="${escapeHtml(m.qty)}">
+      <input type="text" id="mat-${i}-unit" placeholder="Unit" value="${escapeHtml(m.unit || '')}">
       <button type="button" class="mat-remove" onclick="removeMatRow(${i})">✕</button>
     </div>
   `).join('');
 }
-function addMatRow() { APP.draft.fields.materials.push({ name: '', qty: '', unit: '' }); renderMatRows(); }
-function removeMatRow(i) { APP.draft.fields.materials.splice(i, 1); if (!APP.draft.fields.materials.length) APP.draft.fields.materials.push({ name: '', qty: '', unit: '' }); renderMatRows(); }
+function addMatRow() { syncMatRowsFromDom(); APP.draft.fields.materials.push({ name: '', qty: '', unit: '' }); renderMatRows(); }
+function removeMatRow(i) {
+  syncMatRowsFromDom();
+  APP.draft.fields.materials.splice(i, 1);
+  if (!APP.draft.fields.materials.length) APP.draft.fields.materials.push({ name: '', qty: '', unit: '' });
+  renderMatRows();
+}
+
+// Re-render (add/remove a row, or save) replaces mat-rows' HTML from
+// APP.draft.fields.materials -- so anything typed since the last render has
+// to be pulled back into that array first, or it's lost.
+function syncMatRowsFromDom() {
+  APP.draft.fields.materials.forEach((m, i) => {
+    if (!document.getElementById(`mat-${i}-qty`)) return; // not rendered (shouldn't happen, but don't crash)
+    m.name = getPickOrAddValue(`mat-${i}-name`);
+    m.qty = document.getElementById(`mat-${i}-qty`).value;
+    m.unit = document.getElementById(`mat-${i}-unit`).value;
+  });
+}
+
+// ── "Pick from list, or add new" control shared by vendor + each material row ──
+// Renders a <select> of known names plus "Add new", and a text input that
+// only shows once "Add new" is chosen -- so nothing is ever silently mapped;
+// a name is either an exact pick from what's already confirmed, or a fresh
+// one someone is explicitly typing in right now.
+function pickOrAddHtml(id, list, currentValue, extraClass) {
+  const trimmed = (currentValue || '').trim();
+  const match = list.find(v => v.toLowerCase() === trimmed.toLowerCase());
+  const isNew = !match;
+  const options = list.map(v => `<option value="${escapeHtml(v)}" ${v === match ? 'selected' : ''}>${escapeHtml(v)}</option>`).join('');
+  const select = list.length ? `
+    <select id="${id}-select" class="${extraClass || ''}" onchange="onPickChange('${id}')">
+      ${options}
+      <option value="__new__" ${isNew ? 'selected' : ''}>＋ Add new…</option>
+    </select>` : '';
+  return `
+    ${select}
+    <input type="text" id="${id}-new" placeholder="${list.length ? 'New name' : 'Type name (first time — starts the list)'}"
+      value="${escapeHtml(isNew ? trimmed : '')}" class="${extraClass || ''}"
+      style="${list.length && !isNew ? 'display:none;' : ''}margin-top:${list.length ? '6px' : '0'};">
+  `;
+}
+function onPickChange(id) {
+  const sel = document.getElementById(`${id}-select`);
+  const newInput = document.getElementById(`${id}-new`);
+  newInput.style.display = sel.value === '__new__' ? 'block' : 'none';
+  if (sel.value === '__new__') newInput.focus();
+}
+function getPickOrAddValue(id) {
+  const sel = document.getElementById(`${id}-select`);
+  if (sel && sel.value !== '__new__') return sel.value;
+  const newInput = document.getElementById(`${id}-new`);
+  return newInput ? newInput.value.trim() : '';
+}
 
 function discardDraft() { APP.draft = null; renderCapture(); }
 
 async function saveDraft() {
+  const vendor = getPickOrAddValue('f-vendor');
+  if (!vendor) { alert('Pick or type a vendor name before saving.'); return; }
+  syncMatRowsFromDom();
+  const materials = APP.draft.fields.materials.filter(m => m.name.trim());
+  if (!materials.length) { alert('Add at least one material before saving.'); return; }
+
   const btn = document.getElementById('save-btn');
   btn.disabled = true; btn.textContent = 'Saving…';
 
@@ -215,10 +290,10 @@ async function saveDraft() {
     id: 'DC-' + Date.now(),
     date: document.getElementById('f-date').value,
     dc_number: document.getElementById('f-dcnum').value,
-    vendor: document.getElementById('f-vendor').value,
+    vendor: vendor,
     vehicle_no: document.getElementById('f-vehicle').value,
     site_address: document.getElementById('f-site').value,
-    materials: APP.draft.fields.materials.filter(m => m.name.trim()),
+    materials: materials,
     photo: APP.draft.photoDataUrl,
     captured_by: APP.capturedBy || 'unknown',
     captured_at: new Date().toISOString(),
@@ -235,6 +310,7 @@ async function saveDraft() {
     if (data.error) throw new Error(data.error);
     rec.sync_status = 'synced';
     await dbPutRecord(rec);
+    fetchLists(); // pick up any name just added, for the next capture
   } catch (err) {
     // Stays 'queued' in IndexedDB — synced next time saveDraft or a future sync-retry runs successfully.
     // (Phase 2 adds a background retry; for now it's visible as "queued" in the ledger.)

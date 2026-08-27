@@ -39,24 +39,32 @@ in by hand.
   JSON: date, DC number, vendor, vehicle number, site, and a materials array.
   Low-confidence fields come back flagged and are highlighted on the confirm screen.
 - **Confirm**: every field is editable — nothing saves until a person taps
-  "Save challan". Materials are mapped to a standard name during extraction
-  (see below) but still fully editable if the mapping is wrong.
+  "Save challan". Vendor and each material are picked from a known-good list
+  rather than freely retyped (see below).
 - **Save**: record + original photo are written to the Sheet/Drive backend, and
   cached locally in IndexedDB so the ledger works even if you go straight back offline.
 
-## Material name standardization
+## Vendor & material name discipline
 
-Handwritten material names vary a lot ("Bricks tukda", "brick bat", "toda
-bricks" — all the same item). Extraction maps each line to the closest name
-in the **Materials** sheet tab and uses that as the material name; the
-original handwritten text is kept alongside it as `raw_text` in the saved
-record (visible in the Sheet's Materials JSON column) so nothing written on
-the chit is lost even though the UI only shows the mapped name.
+Handwritten names vary a lot ("Bricks tukda", "brick bat", "toda bricks" —
+all the same item; a vendor's name spelled three different ways across three
+chits). Rather than have the model guess a "correct" spelling, the app makes
+staff choose:
 
-The **Materials** tab is auto-created (seeded with a starter list) the first
-time you run an extraction. To edit the list: open it directly in the Sheet,
-add/rename/delete rows in the "Standard Name" column. Changes apply on the
-very next capture — no code edit, no redeploy.
+- Extraction transcribes the vendor and each material **exactly as
+  handwritten** — no standardizing, no guessing.
+- On the confirm screen, vendor and each material are a **dropdown of
+  everything confirmed so far**, plus an **"Add new…"** option. If the
+  handwriting matches an existing entry, it's preselected; otherwise it drops
+  straight into "Add new" pre-filled with the handwritten text for a person
+  to confirm or correct.
+- **Both lists start empty.** The `Vendors` and `Materials` sheet tabs are
+  auto-created with no rows — they grow only from names a person actually
+  confirmed on save, never from an unreviewed guess. The first few DCs will
+  be all "Add new"; the lists fill in fast after that as the same vendors and
+  materials repeat.
+- You can also edit the `Vendors`/`Materials` tabs by hand any time (fix a
+  typo, merge a duplicate) — changes apply on the very next capture.
 
 ## Next phases
 

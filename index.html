@@ -37,16 +37,16 @@
   /* form */
   label{display:block;font-size:11.5px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--ink-soft);margin:14px 0 5px;}
   label:first-child{margin-top:0;}
-  input[type=text],input[type=date],textarea{
+  input[type=text],input[type=date],textarea,select{
     width:100%;padding:10px 11px;border:1px solid var(--line);border-radius:7px;font-size:15px;
     background:#fbfcfd;color:var(--ink);font-family:inherit;
   }
-  input:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;}
+  input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-offset:-1px;}
   .conf-low{border-color:var(--warn);background:#fdf6ea;}
   .conf-flag{font-size:10.5px;color:var(--warn);margin-top:3px;}
 
-  .mat-row{display:grid;grid-template-columns:1fr 70px 70px 30px;gap:8px;margin-bottom:8px;align-items:center;}
-  .mat-row input{padding:9px;font-size:13.5px;}
+  .mat-row{display:grid;grid-template-columns:1fr 70px 70px 30px;gap:8px;margin-bottom:8px;align-items:start;}
+  .mat-row input,.mat-row select{padding:9px;font-size:13.5px;}
   .mat-remove{background:none;border:none;color:var(--bad);font-size:18px;cursor:pointer;padding:4px;}
   .mat-add{background:none;border:1px dashed var(--line);border-radius:7px;color:var(--ink-soft);padding:9px;width:100%;font-size:13px;cursor:pointer;margin-top:2px;}
 
@@ -92,6 +92,6 @@
   <button id="tab-settings" onclick="showTab('settings')">⚙️ Site</button>
 </nav>
 
-<script src="app.js?v=4"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>

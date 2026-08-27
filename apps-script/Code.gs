@@ -11,53 +11,18 @@
  *      (or leave blank to auto-create one named "DigitalDC Photos" on first run).
  *   3. This script writes rows to a sheet named "Challans" in the bound spreadsheet,
  *      creating it with headers on first run if it doesn't exist.
- *   4. A "Materials" sheet tab is auto-created on first extraction, seeded with a
- *      starter list of standard material names. Edit that tab any time — add,
- *      rename, or delete rows — to control what handwritten materials get mapped
- *      to; changes apply on the very next capture, no redeploy needed.
+ *   4. "Vendors" and "Materials" sheet tabs are auto-created empty on first use.
+ *      Staff pick from these lists on the confirm screen, or add a new entry if
+ *      theirs isn't there yet — a new entry is appended to the sheet on save, so
+ *      the lists grow only from names someone has actually confirmed, never from
+ *      the model's own guess. You can also edit these tabs by hand any time.
  */
 
 const DRIVE_FOLDER_ID = ''; // optional: paste a Drive folder ID, or leave blank to auto-create
 const SHEET_NAME = 'Challans';
+const VENDORS_SHEET_NAME = 'Vendors';
 const MATERIALS_SHEET_NAME = 'Materials';
 const CLAUDE_MODEL = 'claude-sonnet-5';
-
-// Starter standard material names — only used to seed the "Materials" sheet
-// tab the first time extraction runs and that tab doesn't exist yet. After
-// that, the list lives entirely in the sheet: add/remove/rename rows there
-// and the very next photo capture picks it up — no code edit, no redeploy.
-const MATERIAL_CATALOG_SEED = [
-  'Cement (OPC)', 'Cement (PPC)', 'Sand (River)', 'Sand (Crush/M-Sand)',
-  'Aggregate 10mm', 'Aggregate 20mm', 'Aggregate 40mm',
-  'Bricks (Full)', 'Broken Brick Pieces', 'AAC Blocks', 'Fly Ash Bricks',
-  'Steel (TMT Bar)', 'Steel (Binding Wire)', 'Cement Blocks',
-  'RMC (Ready Mix Concrete)', 'Water',
-  'Plywood', 'Timber/Wood', 'Shuttering Material',
-  'Tiles (Floor)', 'Tiles (Wall)', 'Granite', 'Marble',
-  'PVC Pipe', 'GI Pipe', 'CPVC Pipe', 'Electrical Conduit', 'Electrical Wire/Cable',
-  'Paint', 'Primer', 'Putty', 'Waterproofing Chemical',
-  'Glass', 'Aluminium Section', 'MS Angle/Channel', 'Hardware/Fasteners',
-  'Bitumen', 'Gravel/Murum', 'Soil (Filling)',
-];
-
-// Reads the standard material list from the "Materials" sheet tab, creating
-// and seeding it on first run. Blank rows are skipped so deleting an item is
-// just deleting its row.
-function getMaterialCatalog() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(MATERIALS_SHEET_NAME);
-  if (!sheet) {
-    sheet = ss.insertSheet(MATERIALS_SHEET_NAME);
-    sheet.appendRow(['Standard Name']);
-    sheet.setFrozenRows(1);
-    MATERIAL_CATALOG_SEED.forEach(name => sheet.appendRow([name]));
-  }
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return [];
-  return sheet.getRange(2, 1, lastRow - 1, 1).getValues()
-    .map(row => String(row[0] || '').trim())
-    .filter(Boolean);
-}
 
 function doPost(e) {
   let body;
@@ -70,13 +35,32 @@ function doPost(e) {
   try {
     if (body.action === 'extract') return jsonOut(extractFromImage(body.image));
     if (body.action === 'save') return jsonOut(saveRecord(body.record));
+    if (body.action === 'lists') return jsonOut(getLists());
     return jsonOut({ error: 'Unknown action: ' + body.action });
   } catch (err) {
     return jsonOut({ error: err.message || String(err) });
   }
 }
 
+// GET is used for the lists refresh (cheap, no body needed).
+function doGet(e) {
+  try {
+    if (e.parameter.action === 'lists') return jsonOut(getLists());
+    return jsonOut({ error: 'Unknown action' });
+  } catch (err) {
+    return jsonOut({ error: err.message || String(err) });
+  }
+}
+
+function getLists() {
+  return { vendors: readNameList(VENDORS_SHEET_NAME), materials: readNameList(MATERIALS_SHEET_NAME) };
+}
+
 // ── Extraction: send the photo to Claude, get structured fields back ──
+// Extraction reads the chit as handwritten — it does NOT try to match against
+// the vendor/material lists. That matching (and the choice to add a genuinely
+// new name) is a confirm-screen decision a person makes, not something the
+// model silently resolves.
 function extractFromImage(dataUrl) {
   const apiKey = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set in Script Properties');
@@ -85,7 +69,6 @@ function extractFromImage(dataUrl) {
   if (!match) throw new Error('Invalid image data');
   const mediaType = match[1];
   const base64 = match[2];
-  const materialCatalog = getMaterialCatalog();
 
   const schema = {
     name: 'delivery_challan',
@@ -95,7 +78,7 @@ function extractFromImage(dataUrl) {
       properties: {
         date: { type: 'string', description: 'Date on the chit, as YYYY-MM-DD. Guess the year from context if only DD/MM is legible.' },
         dc_number: { type: 'string', description: 'The printed or stamped serial number of the chit.' },
-        vendor: { type: 'string', description: 'Supplier/vendor name as handwritten.' },
+        vendor: { type: 'string', description: 'Supplier/vendor name exactly as handwritten.' },
         vehicle_no: { type: 'string', description: 'Vehicle registration number as handwritten.' },
         site_address: { type: 'string', description: 'Site name/address as handwritten.' },
         materials: {
@@ -103,12 +86,11 @@ function extractFromImage(dataUrl) {
           items: {
             type: 'object',
             properties: {
-              name: { type: 'string', description: 'The closest matching name from the provided standard materials list. Only fall back to the handwritten text verbatim if nothing in the list is a reasonable match.' },
-              raw_text: { type: 'string', description: 'The material exactly as handwritten on the chit, unedited — kept for audit even when name above is a mapped standard name.' },
+              name: { type: 'string', description: 'Material name exactly as handwritten.' },
               qty: { type: 'string' },
               unit: { type: 'string' },
             },
-            required: ['name', 'raw_text'],
+            required: ['name'],
           },
         },
         field_confidence: {
@@ -129,12 +111,7 @@ function extractFromImage(dataUrl) {
       role: 'user',
       content: [
         { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-        { type: 'text', text: 'Extract this construction delivery challan into the delivery_challan tool. It is a printed pad with Marathi field labels and handwritten English/Marathi answers. Flag anything illegible or ambiguous with low confidence rather than guessing silently.'
-          + (materialCatalog.length
-            ? '\n\nFor each material line, map the handwritten item to the closest match in this standard materials list, and use that standard name as "name" (keep the handwritten text verbatim in "raw_text" regardless):\n'
-              + materialCatalog.join(', ')
-              + '\n\nOnly use the handwritten text as-is for "name" if none of the above is a reasonable match (e.g. a material genuinely not on the list) — do not force a bad match. If the mapping is uncertain, flag that material row low confidence.'
-            : '') },
+        { type: 'text', text: 'Extract this construction delivery challan into the delivery_challan tool, exactly as handwritten -- do not standardize or guess a "proper" name for the vendor or any material, just transcribe what is written. It is a printed pad with Marathi field labels and handwritten English/Marathi answers. Flag anything illegible or ambiguous with low confidence rather than guessing silently.' },
       ],
     }],
   };
@@ -156,7 +133,7 @@ function extractFromImage(dataUrl) {
   return toolUse.input;
 }
 
-// ── Save: append row to the sheet, store the photo in Drive ──
+// ── Save: append row to the sheet, store the photo in Drive, grow the lists ──
 function saveRecord(rec) {
   if (!rec || !rec.id) throw new Error('Missing record');
 
@@ -176,6 +153,11 @@ function saveRecord(rec) {
     rec.captured_at,
     rec.confirmed_at,
   ]);
+
+  // Only the names a person actually confirmed on save go into the lists --
+  // this is how the (initially empty) Vendors/Materials tabs grow over time.
+  ensureInList(VENDORS_SHEET_NAME, rec.vendor);
+  (rec.materials || []).forEach(m => ensureInList(MATERIALS_SHEET_NAME, m.name));
 
   return { ok: true, id: rec.id, photo_url: photoUrl };
 }
@@ -206,6 +188,36 @@ function getOrCreateSheet() {
     sheet.setFrozenRows(1);
   }
   return sheet;
+}
+
+// ── Vendors / Materials lists — start empty, grow only from confirmed saves ──
+function getOrCreateListSheet(name) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(name);
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+    sheet.appendRow(['Name']);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function readNameList(sheetName) {
+  const sheet = getOrCreateListSheet(sheetName);
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  return sheet.getRange(2, 1, lastRow - 1, 1).getValues()
+    .map(row => String(row[0] || '').trim())
+    .filter(Boolean);
+}
+
+function ensureInList(sheetName, value) {
+  const name = String(value || '').trim();
+  if (!name) return;
+  const sheet = getOrCreateListSheet(sheetName);
+  const existing = readNameList(sheetName);
+  const alreadyThere = existing.some(n => n.toLowerCase() === name.toLowerCase());
+  if (!alreadyThere) sheet.appendRow([name]);
 }
 
 function jsonOut(obj) {
