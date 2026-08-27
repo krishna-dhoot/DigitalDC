@@ -11,19 +11,22 @@
  *      (or leave blank to auto-create one named "DigitalDC Photos" on first run).
  *   3. This script writes rows to a sheet named "Challans" in the bound spreadsheet,
  *      creating it with headers on first run if it doesn't exist.
+ *   4. A "Materials" sheet tab is auto-created on first extraction, seeded with a
+ *      starter list of standard material names. Edit that tab any time — add,
+ *      rename, or delete rows — to control what handwritten materials get mapped
+ *      to; changes apply on the very next capture, no redeploy needed.
  */
 
 const DRIVE_FOLDER_ID = ''; // optional: paste a Drive folder ID, or leave blank to auto-create
 const SHEET_NAME = 'Challans';
+const MATERIALS_SHEET_NAME = 'Materials';
 const CLAUDE_MODEL = 'claude-sonnet-5';
 
-// Standard material names — handwritten material names on the chit (however
-// they're spelled/abbreviated) get mapped to one of these during extraction,
-// so "Bricks tukda", "brick bat", "toda bricks" etc. all land as the same
-// name in the ledger instead of each spelling being its own item. Edit this
-// list freely; it's read fresh on every extraction call, no redeploy of the
-// mapping logic needed — just save the script.
-const MATERIAL_CATALOG = [
+// Starter standard material names — only used to seed the "Materials" sheet
+// tab the first time extraction runs and that tab doesn't exist yet. After
+// that, the list lives entirely in the sheet: add/remove/rename rows there
+// and the very next photo capture picks it up — no code edit, no redeploy.
+const MATERIAL_CATALOG_SEED = [
   'Cement (OPC)', 'Cement (PPC)', 'Sand (River)', 'Sand (Crush/M-Sand)',
   'Aggregate 10mm', 'Aggregate 20mm', 'Aggregate 40mm',
   'Bricks (Full)', 'Broken Brick Pieces', 'AAC Blocks', 'Fly Ash Bricks',
@@ -36,6 +39,25 @@ const MATERIAL_CATALOG = [
   'Glass', 'Aluminium Section', 'MS Angle/Channel', 'Hardware/Fasteners',
   'Bitumen', 'Gravel/Murum', 'Soil (Filling)',
 ];
+
+// Reads the standard material list from the "Materials" sheet tab, creating
+// and seeding it on first run. Blank rows are skipped so deleting an item is
+// just deleting its row.
+function getMaterialCatalog() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(MATERIALS_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(MATERIALS_SHEET_NAME);
+    sheet.appendRow(['Standard Name']);
+    sheet.setFrozenRows(1);
+    MATERIAL_CATALOG_SEED.forEach(name => sheet.appendRow([name]));
+  }
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  return sheet.getRange(2, 1, lastRow - 1, 1).getValues()
+    .map(row => String(row[0] || '').trim())
+    .filter(Boolean);
+}
 
 function doPost(e) {
   let body;
@@ -63,6 +85,7 @@ function extractFromImage(dataUrl) {
   if (!match) throw new Error('Invalid image data');
   const mediaType = match[1];
   const base64 = match[2];
+  const materialCatalog = getMaterialCatalog();
 
   const schema = {
     name: 'delivery_challan',
@@ -106,10 +129,12 @@ function extractFromImage(dataUrl) {
       role: 'user',
       content: [
         { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-        { type: 'text', text: 'Extract this construction delivery challan into the delivery_challan tool. It is a printed pad with Marathi field labels and handwritten English/Marathi answers. Flag anything illegible or ambiguous with low confidence rather than guessing silently.\n\n'
-          + 'For each material line, map the handwritten item to the closest match in this standard materials list, and use that standard name as "name" (keep the handwritten text verbatim in "raw_text" regardless):\n'
-          + MATERIAL_CATALOG.join(', ')
-          + '\n\nOnly use the handwritten text as-is for "name" if none of the above is a reasonable match (e.g. a material genuinely not on the list) — do not force a bad match. If the mapping is uncertain, flag that material row low confidence.' },
+        { type: 'text', text: 'Extract this construction delivery challan into the delivery_challan tool. It is a printed pad with Marathi field labels and handwritten English/Marathi answers. Flag anything illegible or ambiguous with low confidence rather than guessing silently.'
+          + (materialCatalog.length
+            ? '\n\nFor each material line, map the handwritten item to the closest match in this standard materials list, and use that standard name as "name" (keep the handwritten text verbatim in "raw_text" regardless):\n'
+              + materialCatalog.join(', ')
+              + '\n\nOnly use the handwritten text as-is for "name" if none of the above is a reasonable match (e.g. a material genuinely not on the list) — do not force a bad match. If the mapping is uncertain, flag that material row low confidence.'
+            : '') },
       ],
     }],
   };

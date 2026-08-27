@@ -47,16 +47,16 @@ in by hand.
 ## Material name standardization
 
 Handwritten material names vary a lot ("Bricks tukda", "brick bat", "toda
-bricks" — all the same item). Extraction maps each line to the closest entry
-in `MATERIAL_CATALOG` (top of `Code.gs`) and uses that as the material name;
-the original handwritten text is kept alongside it as `raw_text` in the saved
+bricks" — all the same item). Extraction maps each line to the closest name
+in the **Materials** sheet tab and uses that as the material name; the
+original handwritten text is kept alongside it as `raw_text` in the saved
 record (visible in the Sheet's Materials JSON column) so nothing written on
 the chit is lost even though the UI only shows the mapped name.
 
-To edit the list: open `Code.gs` in the Apps Script editor, edit the
-`MATERIAL_CATALOG` array, save, then **Deploy → Manage deployments → Edit →
-New version** (saving alone does not update the live `/exec` endpoint).
-No client changes needed.
+The **Materials** tab is auto-created (seeded with a starter list) the first
+time you run an extraction. To edit the list: open it directly in the Sheet,
+add/rename/delete rows in the "Standard Name" column. Changes apply on the
+very next capture — no code edit, no redeploy.
 
 ## Next phases
 
