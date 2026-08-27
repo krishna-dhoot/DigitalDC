@@ -5,7 +5,7 @@
 
 const APP = {
   // Set this after deploying the Apps Script web app (Deploy > New deployment > Web app).
-  scriptUrl: 'PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE',
+  scriptUrl: 'https://script.google.com/macros/s/AKfycbwLm0nMxq4JCxsh0JjqloZc_lPi15j-F8-PcvGi9pocJ_--mDAgJJxjqEKm23DPFPUY/exec',
   site: localStorage.getItem('digitaldc_site') || '',
   capturedBy: localStorage.getItem('digitaldc_user') || '',
   records: [],     // local cache of saved records, newest first
