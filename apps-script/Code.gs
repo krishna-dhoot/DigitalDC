@@ -94,10 +94,10 @@ function extractFromImage(dataUrl) {
           items: {
             type: 'object',
             properties: {
-              name: { type: 'string', description: 'Material name exactly as handwritten.' },
+              name: { type: 'string', description: 'Material name exactly as handwritten. Never include the quantity number, unit word, or a date here.' },
               match: { type: 'string', description: 'One EXACT entry from the given materials list, ONLY if confident it is the same material as handwritten. Omit entirely if unsure or the list is empty -- never guess.' },
-              qty: { type: 'string' },
-              unit: { type: 'string' },
+              qty: { type: 'string', description: 'The quantity NUMBER ONLY, e.g. "2" -- never a unit word, never a date, never anything else from the same line. If the quantity line reads "2 tractor", qty is "2" and "tractor" goes in unit below, not here.' },
+              unit: { type: 'string', description: 'The unit word next to the quantity, if any (e.g. "tractor", "trolley", "bags", "brass", "kg"). A date anywhere on this line is not a unit -- leave it out entirely, it belongs in the top-level "date" field only if it is genuinely the chit\'s date, otherwise drop it.' },
             },
             required: ['name'],
           },
@@ -126,7 +126,7 @@ function extractFromImage(dataUrl) {
       role: 'user',
       content: [
         { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-        { type: 'text', text: 'Extract this construction delivery challan into the delivery_challan tool, exactly as handwritten -- do not standardize or guess a "proper" name for the vendor or any material, just transcribe what is written. It is a printed pad with Marathi field labels and handwritten English/Marathi answers. Flag anything illegible or ambiguous with low confidence rather than guessing silently.' + listsPrompt },
+        { type: 'text', text: 'Extract this construction delivery challan into the delivery_challan tool, exactly as handwritten -- do not standardize or guess a "proper" name for the vendor or any material, just transcribe what is written. It is a printed pad, typically with Marathi field labels, but the exact labels and layout can vary between chit pads. When printed labels are unclear or absent, this fixed line order is the fallback for this chit design: DC number is top-left, date is top-right, then in order down the page -- (1) material name, (2) quantity (with unit alongside it, see the qty/unit field descriptions), (3) supplier/vendor name, (4) vehicle number (in a boxed area), (5) site name/address -- with a signature area at the very bottom that is not a data field. Use this position-based order to tell lines apart when labels alone are ambiguous, rather than guessing. Flag anything illegible or ambiguous with low confidence rather than guessing silently.' + listsPrompt },
       ],
     }],
   };
