@@ -65,7 +65,8 @@ function showTab(name) {
 // ── Capture view ──
 function renderCapture() {
   const main = document.getElementById('view-capture');
-  if (APP.draft) { renderConfirm(); return; }
+  if (APP.draft && APP.draft.fields) { renderConfirm(); return; }
+  if (APP.draft) { main.innerHTML = `<div class="card"><img id="preview" src="${APP.draft.photoDataUrl}"><div class="status-row"><div class="spinner"></div> Reading the chit…</div></div>`; return; }
   main.innerHTML = `
     <div class="card">
       <label style="margin-top:0;">Photograph the delivery challan</label>
@@ -84,8 +85,7 @@ async function onPhotoChosen(evt) {
   try {
     const dataUrl = await resizeToDataUrl(file, 1600, 0.82);
     APP.draft = { photoDataUrl: dataUrl, fields: null, confidence: {} };
-    renderCapture();
-    extractFields(dataUrl);
+    extractFields(dataUrl); // draws its own loading state, then the confirm screen once fields land
   } catch (err) {
     alert('Could not read that photo: ' + (err.message || err) + '\nTry taking the photo again.');
   }
